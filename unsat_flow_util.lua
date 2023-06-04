@@ -27,10 +27,7 @@ function ProblemDisc:new(problemDesc, dom)
     self.gravity = ConstUserVector(0.0)
     self.gravity:set_entry(problemDesc.domain.dim-1, problemDesc.flow.gravity)
 
-    self.modelMap = nil
-    if problemDesc.parameter ~= nil then
-        self.modelMap = ProblemDisc:CreateModelMap(problemDesc.parameter)
-    end
+    self.parameter = problemDesc.parameter
 
     return problemObj
 end
@@ -79,8 +76,15 @@ function ProblemDisc:CreateElemDisc(subdom, medium)
     end
 
     -- the vanGenuchten model is calculated using the Richards Plugin
-    local conductivity = ProblemDisc:conductivity(medium.conductivity.value) -- k(S)
-    local saturation = ProblemDisc:saturation(medium.saturation.value) -- S
+    local vanGenuchten = VanGenuchten()
+    local conductivity = vanGenuchten:conductivity()
+    local saturation = vanGenuchten:saturation()
+    vGparams = self:getModelParameters(medium.saturation.value)
+    vanGenuchten:set_parameters(vGparams.alpha, vGparams.n, vGparams.thetaS, vGparams.thetaR, vGparams.Ksat)
+
+    print(vanGenuchten)
+    print(conductivity)
+    print(saturation)
 
     -- hydraulic conductivity in saturated medium is given by darcys law
     -- k_f = K*rho*g / mu
@@ -174,13 +178,7 @@ function ProblemDisc:CreateElemDisc(subdom, medium)
     local capillary = -1.0*elemDisc["flow"]:value()
 
     -- setting capillary pressure as inputs for the van Genuchten model
-    if medium.conductivity.type == "vanGenuchten" then
-        conductivity:set_capillary(capillary)
-    end
-
-    if medium.saturation.type == "vanGenuchten" then
-        saturation:set_capillary(capillary)
-    end
+    vanGenuchten:set_capillary(capillary)
 
     print("Created Element Discretisation for Subset ", subdom)
 
@@ -352,17 +350,15 @@ function ProblemDisc:CreateVTKOutput()
 end
 
 
-function ProblemDisc:CreateModelMap(paramDesc)
+function ProblemDisc:getModelParameters(id)
     local modelMap = {}
-    for i, medium in ipairs(paramDesc) do
-        if medium.type == "vanGenuchten" then
+    for i, medium in ipairs(self.parameter) do
+        if medium.uid == id then
             medium.alpha= medium.alpha / (-1.0 * self.problem.flow.gravity * self.problem.flow.density.min)
-            modelMap[medium.uid] = CreateVanGenuchtenModel(json.encode(medium))
-        elseif medium.type == "const" then
-            modelMap[medium.uid] = medium.value
+            return medium
         end
     end
-    return modelMap
+    return nil
 end
 
 
@@ -427,29 +423,6 @@ function ProblemDisc:density(densDesc)
 
     return density
 end
-
-function ProblemDisc:conductivity(condID)
-    local conductivity = nil
-    local values = self.modelMap[condID]
-
-    if type(values) == "userdata" then
-        conductivity = RichardsConductivity(self.modelMap[condID])
-    end
-    return conductivity
-end
-
-
-function ProblemDisc:saturation(satID)
-    local saturation = nil
-    local values = self.modelMap[satID]
-
-    if type(values) == "userdata" then
-        saturation = RichardsSaturation(self.modelMap[satID])
-    end
-
-    return saturation
-end
-
 
 function ProblemDisc:viscosity()
     local viscosity = nil
